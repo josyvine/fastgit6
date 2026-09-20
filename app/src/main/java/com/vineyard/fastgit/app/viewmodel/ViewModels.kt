@@ -102,9 +102,10 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             _isDeviceFlowLoading.value = true
             _errorMessage.value = null
             try {
-                com.vineyard.fastgit.app.utils.AppLogger.i("DeviceFlow", "Requesting device code from GitHub...")
+                val clientId = tokenManager.getOAuthClientId()
+                com.vineyard.fastgit.app.utils.AppLogger.i("DeviceFlow", "Requesting device code from GitHub using client ID $clientId...")
                 val response = RetrofitClient.getOAuthService().requestDeviceCode(
-                    clientId = tokenManager.getOAuthClientId(),
+                    clientId = clientId,
                     scope = "repo workflow user read:org notifications gist delete_repo"
                 )
                 if (!response.deviceCode.isNullOrBlank() && !response.userCode.isNullOrBlank()) {
@@ -161,7 +162,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                     } else {
                         when (tokenResponse.error) {
                             "authorization_pending" -> {
-                                // Keep polling
+                                // Keep polling while user confirms in browser
                             }
                             "slow_down" -> {
                                 pollInterval += 5000L
