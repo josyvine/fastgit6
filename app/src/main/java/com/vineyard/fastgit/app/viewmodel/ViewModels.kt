@@ -42,14 +42,39 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     private val _isDeviceFlowLoading = MutableStateFlow(false)
     val isDeviceFlowLoading: StateFlow<Boolean> = _isDeviceFlowLoading
 
+    companion object {
+        const val ADMIN_CLIENT_ID = "Ov23lijUer4XCyoGdmvw"
+        private const val LEGACY_DUMMY_CLIENT_ID = "Ov23liaVFastGitClient"
+    }
+
     init {
+        // Automatically sanitize SharedPreferences: replace any legacy dummy ID with the valid Admin Client ID
+        val currentSavedId = tokenManager.getOAuthClientId()
+        if (currentSavedId == LEGACY_DUMMY_CLIENT_ID || currentSavedId.isBlank()) {
+            tokenManager.saveOAuthCredentials(ADMIN_CLIENT_ID, tokenManager.getOAuthClientSecret())
+        }
+
         if (tokenManager.isLoggedIn() || tokenManager.isDemoMode()) {
             loadCurrentUser()
         }
     }
 
+    fun getCurrentClientId(): String {
+        val id = tokenManager.getOAuthClientId()
+        return if (id.isBlank() || id == LEGACY_DUMMY_CLIENT_ID) ADMIN_CLIENT_ID else id
+    }
+
+    fun saveCustomClientId(clientId: String) {
+        val targetId = if (clientId.isBlank()) ADMIN_CLIENT_ID else clientId.trim()
+        tokenManager.saveOAuthCredentials(targetId, tokenManager.getOAuthClientSecret())
+    }
+
+    fun resetToDefaultClientId() {
+        tokenManager.saveOAuthCredentials(ADMIN_CLIENT_ID, tokenManager.getOAuthClientSecret())
+    }
+
     fun getOAuthAuthorizeUrl(): String {
-        val clientId = tokenManager.getOAuthClientId()
+        val clientId = getCurrentClientId()
         val redirectUri = Uri.encode(TokenManager.OAUTH_REDIRECT_URI)
         val scope = Uri.encode("repo workflow user read:org notifications gist delete_repo")
         return "https://github.com/login/oauth/authorize?client_id=$clientId&redirect_uri=$redirectUri&scope=$scope"
@@ -61,9 +86,10 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             _isLoading.value = true
             _errorMessage.value = null
             try {
-                com.vineyard.fastgit.app.utils.AppLogger.i("OAuth", "Exchanging OAuth authorization code with GitHub...")
+                val clientId = getCurrentClientId()
+                com.vineyard.fastgit.app.utils.AppLogger.i("OAuth", "Exchanging OAuth authorization code with GitHub for client $clientId...")
                 val response = RetrofitClient.getOAuthService().exchangeCodeForToken(
-                    clientId = tokenManager.getOAuthClientId(),
+                    clientId = clientId,
                     clientSecret = tokenManager.getOAuthClientSecret(),
                     code = code,
                     redirectUri = TokenManager.OAUTH_REDIRECT_URI
@@ -102,7 +128,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             _isDeviceFlowLoading.value = true
             _errorMessage.value = null
             try {
-                val clientId = tokenManager.getOAuthClientId()
+                val clientId = getCurrentClientId()
                 com.vineyard.fastgit.app.utils.AppLogger.i("DeviceFlow", "Requesting device code from GitHub using client ID $clientId...")
                 val response = RetrofitClient.getOAuthService().requestDeviceCode(
                     clientId = clientId,
@@ -117,8 +143,9 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                     _errorMessage.value = "Device Flow Error: $err"
                 }
             } catch (e: retrofit2.HttpException) {
+                val activeId = getCurrentClientId()
                 if (e.code() == 404) {
-                    _errorMessage.value = "Device Flow Error: HTTP 404 (GitHub Client ID '${tokenManager.getOAuthClientId()}' not found or Device Flow is disabled in GitHub OAuth App settings. Tap 'Configure OAuth App ID' below to enter your GitHub Client ID)."
+                    _errorMessage.value = "Device Flow Error: HTTP 404 (GitHub Client ID '$activeId' not found or Device Flow is disabled in GitHub OAuth App settings. Ensure Device Flow is enabled in your GitHub Developer settings)."
                 } else {
                     _errorMessage.value = "Device Flow Error: HTTP ${e.code()} ${e.message()}"
                 }
@@ -135,7 +162,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     private fun pollDeviceToken(deviceResponse: com.vineyard.fastgit.app.models.DeviceCodeResponse) {
         viewModelScope.launch {
             val deviceCode = deviceResponse.deviceCode ?: return@launch
-            val clientId = tokenManager.getOAuthClientId()
+            val clientId = getCurrentClientId()
             var pollInterval = ((deviceResponse.interval ?: 5).coerceAtLeast(5)) * 1000L
 
             while (_deviceCodeState.value != null && _deviceCodeState.value?.deviceCode == deviceCode) {
@@ -162,7 +189,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                     } else {
                         when (tokenResponse.error) {
                             "authorization_pending" -> {
-                                // Keep polling while user confirms in browser
+                                // Keep polling while user approves on GitHub
                             }
                             "slow_down" -> {
                                 pollInterval += 5000L
@@ -409,7 +436,6 @@ class RepositoryViewModel(application: Application) : AndroidViewModel(applicati
                     val api = RetrofitClient.getService(tokenManager)
                     val response = api.deleteRepository(owner, name)
                     if (response.isSuccessful) {
-                        // Safely filter internal list immediately for snappy state refresh
                         _repositories.value = _repositories.value.filterNot { it.name == name && it.owner?.login == owner }
                         _statusMessage.value = "Repository '$name' deleted successfully!"
                         fetchRepositories()
@@ -543,12 +569,9 @@ class RepositoryViewModel(application: Application) : AndroidViewModel(applicati
                     }
                 } else {
                     val api = RetrofitClient.getService(tokenManager)
-                    
-                    // 1. Get current authenticated user to verify ownership
                     val currentUser = try { api.getCurrentUser() } catch (e: Exception) { null }
                     val newOwner = currentUser?.login ?: "developer"
 
-                    // 2. Create the new target repository under the authenticated user's account
                     val createReq = CreateRepoRequest(
                         name = targetRepoName,
                         description = "Imported copy from $cleanUrl",
@@ -558,7 +581,6 @@ class RepositoryViewModel(application: Application) : AndroidViewModel(applicati
                     val newRepo = api.createRepository(createReq)
                     com.vineyard.fastgit.app.utils.AppLogger.s("RepositoryViewModel", "Created target repository '${newRepo.fullName}' on GitHub.")
 
-                    // 3. Download source repository zipball and import contents into the new repository
                     var filesImportedCount = 0
                     try {
                         com.vineyard.fastgit.app.utils.AppLogger.i("RepositoryViewModel", "Downloading source zipball for $sourceOwner/$sourceRepo...")
