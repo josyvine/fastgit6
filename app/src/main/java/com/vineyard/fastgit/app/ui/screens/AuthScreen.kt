@@ -44,7 +44,7 @@ fun AuthScreen(
     var manualCodeInput by remember { mutableStateOf("") }
 
     var showOauthConfigDialog by remember { mutableStateOf(false) }
-    var oauthClientIdInput by remember { mutableStateOf(authViewModel.tokenManager.getOAuthClientId()) }
+    var oauthClientIdInput by remember { mutableStateOf(authViewModel.getCurrentClientId()) }
     var oauthClientSecretInput by remember { mutableStateOf(authViewModel.tokenManager.getOAuthClientSecret()) }
 
     LaunchedEffect(isLoggedIn) {
@@ -244,7 +244,7 @@ fun AuthScreen(
 
                         TextButton(
                             onClick = {
-                                oauthClientIdInput = authViewModel.tokenManager.getOAuthClientId()
+                                oauthClientIdInput = authViewModel.getCurrentClientId()
                                 oauthClientSecretInput = authViewModel.tokenManager.getOAuthClientSecret()
                                 showOauthConfigDialog = true
                             }
@@ -471,7 +471,7 @@ fun AuthScreen(
             text = {
                 Column {
                     Text(
-                        text = "To use Device Flow or official OAuth with your own GitHub registered App, enter your GitHub Client ID and Client Secret (from github.com/settings/developers):",
+                        text = "FastGit includes a built-in Admin Client ID so you can sign in directly. If you prefer to use your own GitHub Developer App, enter your Client ID and Client Secret below:",
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
                         fontSize = 13.sp
                     )
@@ -507,6 +507,23 @@ fun AuthScreen(
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    TextButton(
+                        onClick = {
+                            authViewModel.resetToDefaultClientId()
+                            oauthClientIdInput = authViewModel.getCurrentClientId()
+                            oauthClientSecretInput = authViewModel.tokenManager.getOAuthClientSecret()
+                        },
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text(
+                            text = "Reset to Built-in App ID",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 12.sp
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -515,6 +532,7 @@ fun AuthScreen(
                         val cid = oauthClientIdInput.trim()
                         val csec = oauthClientSecretInput.trim()
                         if (cid.isNotEmpty()) {
+                            authViewModel.saveCustomClientId(cid)
                             authViewModel.tokenManager.saveOAuthCredentials(cid, csec)
                             showOauthConfigDialog = false
                         }
