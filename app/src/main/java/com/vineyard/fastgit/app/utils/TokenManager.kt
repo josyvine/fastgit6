@@ -64,7 +64,8 @@ class TokenManager(context: Context) {
         private const val KEY_OAUTH_CLIENT_ID = "oauth_client_id"
         private const val KEY_OAUTH_CLIENT_SECRET = "oauth_client_secret"
 
-        const val DEFAULT_CLIENT_ID = "Ov23liaVFastGitClient"
+        // Production Admin GitHub OAuth Client ID (Device Flow enabled)
+        const val DEFAULT_CLIENT_ID = "Ov23lijUer4XCyoGdmvw"
         const val DEFAULT_CLIENT_SECRET = "fastgit_oauth_app_secret"
         const val OAUTH_REDIRECT_URI = "fastgit://oauth-callback"
     }
